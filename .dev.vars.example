@@ -1,0 +1,5 @@
+# Copy this file to ".dev.vars" (that exact name) for LOCAL testing only.
+# .dev.vars is gitignored — real keys must NEVER be committed to Git.
+GEMINI_API_KEY=paste_your_gemini_key_here
+ANTHROPIC_API_KEY=optional_only_if_you_add_a_claude_key_later
+DEEPSEEK_API_KEY=paste_your_deepseek_key_here_starts_with_sk-
