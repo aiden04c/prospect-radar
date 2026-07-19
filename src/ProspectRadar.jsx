@@ -767,6 +767,392 @@ One concrete, dated ask.
 Do NOT output a json actions block. Markdown only.`;
 }
 
+/* ---------------- Score breakdown (click a score to see why) ---------------- */
+
+function ScoreBreakdown({ rec }) {
+  const b = bandOf(rec.score);
+  const evidence = {
+    region: rec.regionEvidence,
+    trigger: rec.triggerEvidence,
+    size: rec.sizeEvidence,
+    custody: rec.custodyEvidence,
+  };
+  const unset = FIELDS.filter((f) => !rec.form[f.key]);
+  return (
+    <div className="px-4 py-3" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+      <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
+        <span className="text-xs font-bold uppercase tracking-wide" style={{ color: C.forestDark }}>
+          Score breakdown — {rec.company}
+        </span>
+        <span className="text-xs" style={{ color: C.inkSoft }}>
+          {rec.score}/100 · Band {b.band} — {b.note}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {FIELDS.map((f) => {
+          const v = rec.form[f.key];
+          const p = v ? pts(f.opts, v) : 0;
+          const ev = evidence[f.key];
+          return (
+            <div key={f.key}>
+              <div className="flex items-center gap-2 text-xs">
+                <span style={{ color: C.inkSoft, width: 118, flexShrink: 0 }}>{f.label}</span>
+                <span className="flex-1" style={{ color: v ? C.ink : C.gray }}>
+                  {v ? labelOf(f.opts, v) : "Not set — scores 0"}
+                </span>
+                <span className="font-bold" style={{ ...serif, color: p >= f.max * 0.8 ? C.forest : p >= f.max * 0.5 ? C.amber : C.gray, width: 52, textAlign: "right" }}>
+                  {p} / {f.max}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span style={{ width: 118, flexShrink: 0 }} />
+                <div className="flex-1" style={{ height: 4, background: C.borderSoft, borderRadius: 2 }}>
+                  <div style={{ height: 4, width: `${Math.round((p / f.max) * 100)}%`, background: p >= f.max * 0.8 ? C.forest : p >= f.max * 0.5 ? C.amber : C.gray, borderRadius: 2 }} />
+                </div>
+                <span style={{ width: 52 }} />
+              </div>
+              {ev && (
+                <div className="text-xs" style={{ color: C.gray, marginLeft: 126 }}>
+                  {ev}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {unset.length > 0 && (
+        <div className="mt-2 text-xs" style={{ color: C.amber }}>
+          {unset.length} factor{unset.length === 1 ? "" : "s"} unset ({unset.map((f) => f.label).join(", ")}) — set them in Research &amp; Score to firm up this number.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Prospect exploration (DeFiLlama) ---------------- */
+
+// Category → Hex Trust ICP fit. High: custody/staking/wrapping/stablecoin-adjacent.
+const EXPLORE_FIT_HIGH = new Set([
+  "Liquid Staking", "Staking Pool", "Restaking", "Liquid Restaking", "RWA",
+  "Bridge", "Canonical Bridge", "CEX", "Algo-Stables", "Reserve Currency", "Payments",
+]);
+const EXPLORE_FIT_MED = new Set([
+  "Lending", "CDP", "Yield", "Yield Aggregator", "Onchain Capital Allocator",
+  "Risk Curators", "Derivatives", "Options", "Indexes", "Launchpad", "Chain", "Dexs",
+]);
+
+function fmtUsd(n) {
+  const x = Number(n) || 0;
+  if (x >= 1e9) return `$${(x / 1e9).toFixed(1)}B`;
+  if (x >= 1e6) return `$${(x / 1e6).toFixed(0)}M`;
+  if (x >= 1e3) return `$${(x / 1e3).toFixed(0)}K`;
+  return `$${Math.round(x)}`;
+}
+
+// Transparent fit score, mirroring the app's own scoring philosophy:
+// size (40) + category fit (30) + momentum (20) + fresh listing (10) = 100.
+function exploreFit(p) {
+  const parts = [];
+  const tvl = p.tvl || 0;
+  const tvlPts = tvl >= 1e9 ? 40 : tvl >= 2.5e8 ? 36 : tvl >= 5e7 ? 30 : tvl >= 1e7 ? 20 : 8;
+  parts.push({ label: `TVL ${fmtUsd(tvl)}`, pts: tvlPts, max: 40 });
+  const catPts = EXPLORE_FIT_HIGH.has(p.category) ? 30 : EXPLORE_FIT_MED.has(p.category) ? 22 : 12;
+  parts.push({ label: `Category: ${p.category || "?"}`, pts: catPts, max: 30 });
+  const chg = p.change_7d;
+  const momPts = chg == null ? 8 : chg >= 25 ? 20 : chg >= 10 ? 17 : chg >= 3 ? 14 : chg >= 0 ? 10 : chg >= -10 ? 6 : 3;
+  parts.push({ label: chg == null ? "7d change unknown" : `7d change ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, pts: momPts, max: 20 });
+  const ageDays = p.listedAt ? (Date.now() / 1000 - p.listedAt) / 86400 : null;
+  const freshPts = ageDays != null && ageDays <= 120 ? 10 : ageDays != null && ageDays <= 365 ? 5 : 0;
+  parts.push({ label: ageDays == null ? "Listing age unknown" : ageDays <= 120 ? "Newly listed (<4 mo)" : ageDays <= 365 ? "Listed <1 yr" : "Established listing", pts: freshPts, max: 10 });
+  return { score: parts.reduce((s, x) => s + x.pts, 0), parts };
+}
+
+// Module-level cache so switching tabs doesn't refetch ~8k protocols.
+const EXPLORE_CACHE = { data: null, at: 0 };
+
+function ExploreTab({ onResearch }) {
+  const [data, setData] = useState(EXPLORE_CACHE.data);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("all");
+  const [chain, setChain] = useState("all");
+  const [minTvl, setMinTvl] = useState(1e7);
+  const [sortBy, setSortBy] = useState("fit");
+  const [openId, setOpenId] = useState(null);
+
+  async function load(force) {
+    if (loading) return;
+    if (!force && EXPLORE_CACHE.data) {
+      setData(EXPLORE_CACHE.data);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("https://api.llama.fi/protocols");
+      if (!resp.ok) throw new Error(`DeFiLlama replied HTTP ${resp.status}`);
+      const raw = await resp.json();
+      const slim = raw
+        .filter((p) => p && p.name && (p.tvl || 0) > 0)
+        .map((p) => {
+          const rec = {
+            id: String(p.id || p.slug || p.name),
+            name: p.name,
+            slug: p.slug || "",
+            category: p.category || "?",
+            chains: Array.isArray(p.chains) ? p.chains : [],
+            tvl: p.tvl || 0,
+            change_7d: typeof p.change_7d === "number" ? p.change_7d : null,
+            listedAt: p.listedAt || null,
+            url: p.url || "",
+            twitter: p.twitter || "",
+            description: String(p.description || ""),
+            symbol: p.symbol && p.symbol !== "-" ? p.symbol : "",
+          };
+          rec.fit = exploreFit(rec);
+          return rec;
+        });
+      EXPLORE_CACHE.data = slim;
+      EXPLORE_CACHE.at = Date.now();
+      setData(slim);
+    } catch (e) {
+      setError(
+        (e && e.message ? e.message + " — " : "") +
+          "couldn't reach DeFiLlama. Check your connection and press Refresh."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!data) load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const cats = useMemo(() => {
+    if (!data) return [];
+    const n = {};
+    data.forEach((p) => (n[p.category] = (n[p.category] || 0) + 1));
+    return Object.keys(n).filter((c) => n[c] >= 10).sort();
+  }, [data]);
+
+  const chainOpts = useMemo(() => {
+    if (!data) return [];
+    const n = {};
+    data.forEach((p) => p.chains.forEach((c) => (n[c] = (n[c] || 0) + 1)));
+    return Object.entries(n).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([c]) => c).sort();
+  }, [data]);
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const needle = q.trim().toLowerCase();
+    const out = data.filter(
+      (p) =>
+        p.tvl >= minTvl &&
+        (cat === "all" || p.category === cat) &&
+        (chain === "all" || p.chains.includes(chain)) &&
+        (!needle || p.name.toLowerCase().includes(needle) || p.category.toLowerCase().includes(needle))
+    );
+    out.sort((a, b) =>
+      sortBy === "fit" ? b.fit.score - a.fit.score : sortBy === "tvl" ? b.tvl - a.tvl : (b.change_7d || -999) - (a.change_7d || -999)
+    );
+    return out;
+  }, [data, q, cat, chain, minTvl, sortBy]);
+
+  const shown = rows.slice(0, 100);
+  const selStyle = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 9, color: C.ink };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20 }}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 style={{ ...serif, fontSize: 19, fontWeight: 600, color: C.forestDark }}>Prospect exploration</h2>
+          <span className="text-xs" style={{ color: C.gray }}>
+            Data: DeFiLlama public API{EXPLORE_CACHE.at ? ` · fetched ${new Date(EXPLORE_CACHE.at).toLocaleTimeString()}` : ""}
+            {"  "}
+            <button
+              onClick={() => load(true)}
+              className="px-2 py-0.5 text-xs font-semibold ml-1"
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 7, color: C.forestDark, cursor: "pointer" }}
+            >
+              Refresh
+            </button>
+          </span>
+        </div>
+        <p className="mt-1 text-sm" style={{ color: C.inkSoft }}>
+          Can't think of who to research next? These are live on-chain projects ranked by fit with Hex Trust's ideal client —
+          size (TVL), category, momentum, and how new they are. Click a fit score to see why; “Research” sends one to the Research tab.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name or category…"
+            className="px-3 py-1.5 text-sm"
+            style={{ ...selStyle, minWidth: 180, flex: "1 1 180px", maxWidth: 300 }}
+          />
+          <select value={cat} onChange={(e) => setCat(e.target.value)} className="px-2 py-1.5 text-xs" style={selStyle}>
+            <option value="all">All categories</option>
+            {cats.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select value={chain} onChange={(e) => setChain(e.target.value)} className="px-2 py-1.5 text-xs" style={selStyle}>
+            <option value="all">All chains</option>
+            {chainOpts.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select value={minTvl} onChange={(e) => setMinTvl(Number(e.target.value))} className="px-2 py-1.5 text-xs" style={selStyle}>
+            <option value={0}>Any TVL</option>
+            <option value={1e7}>TVL ≥ $10M</option>
+            <option value={5e7}>TVL ≥ $50M</option>
+            <option value={2.5e8}>TVL ≥ $250M</option>
+            <option value={1e9}>TVL ≥ $1B</option>
+          </select>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-2 py-1.5 text-xs" style={selStyle}>
+            <option value="fit">Sort: best fit</option>
+            <option value="tvl">Sort: biggest TVL</option>
+            <option value="change">Sort: fastest growing</option>
+          </select>
+          {data && (
+            <span className="text-xs font-semibold" style={{ color: C.inkSoft }}>
+              {rows.length.toLocaleString()} match{rows.length === 1 ? "" : "es"}
+              {rows.length > 100 ? " · showing top 100" : ""}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden" }}>
+        {loading && (
+          <div className="p-8 text-center text-sm" style={{ color: C.inkSoft }}>
+            Loading ~8,000 live projects from DeFiLlama…
+          </div>
+        )}
+        {error && !loading && (
+          <div className="m-4 px-3 py-2 text-sm" style={{ background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 10, color: C.red }}>
+            {error}
+          </div>
+        )}
+        {!loading && !error && data && (
+          <div style={{ overflowX: "auto" }}>
+            <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 860 }}>
+              <thead>
+                <tr style={{ background: C.panelDeep }}>
+                  {["Fit", "Project", "Category", "TVL", "7d", "Chains", ""].map((h, i) => (
+                    <th key={i} className="text-left px-3 py-2.5 text-xs font-bold uppercase tracking-wide whitespace-nowrap" style={{ color: C.forestDark }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-6 text-center text-sm" style={{ color: C.inkSoft }}>
+                      Nothing matches these filters — loosen the TVL floor or clear the search.
+                    </td>
+                  </tr>
+                ) : (
+                  shown.map((p) => {
+                    const fitColor = p.fit.score >= 80 ? C.forest : p.fit.score >= 60 ? "#4C7A4B" : p.fit.score >= 40 ? C.amber : C.gray;
+                    const isOpen = openId === p.id;
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr style={{ borderTop: `1px solid ${C.borderSoft}` }}>
+                          <td className="px-3 py-2">
+                            <button
+                              onClick={() => setOpenId(isOpen ? null : p.id)}
+                              title="Click to see how this fit score is built"
+                              className="px-2 py-0.5 text-xs font-bold"
+                              style={{ background: isOpen ? fitColor : "transparent", color: isOpen ? "#F6F3E7" : fitColor, border: `1px solid ${fitColor}`, borderRadius: 999, cursor: "pointer" }}
+                            >
+                              {p.fit.score}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: C.forestDark }}>
+                            {p.name}
+                            {p.symbol && <span className="ml-1 text-xs font-normal" style={{ color: C.gray }}>{p.symbol}</span>}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap" style={{ color: C.inkSoft }}>{p.category}</td>
+                          <td className="px-3 py-2 whitespace-nowrap" style={{ ...serif, fontWeight: 700, color: C.ink }}>{fmtUsd(p.tvl)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-semibold" style={{ color: p.change_7d == null ? C.gray : p.change_7d >= 0 ? C.forest : C.red }}>
+                            {p.change_7d == null ? "—" : `${p.change_7d >= 0 ? "+" : ""}${p.change_7d.toFixed(1)}%`}
+                          </td>
+                          <td className="px-3 py-2 text-xs" style={{ color: C.inkSoft }}>
+                            {p.chains.slice(0, 3).join(", ")}
+                            {p.chains.length > 3 ? ` +${p.chains.length - 3}` : ""}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <button
+                              onClick={() => onResearch(p)}
+                              className="px-2.5 py-1 text-xs font-semibold"
+                              style={{ background: C.forest, color: "#F6F3E7", borderRadius: 8, border: "none", cursor: "pointer" }}
+                            >
+                              Research →
+                            </button>
+                            {p.slug && (
+                              <a
+                                href={`https://defillama.com/protocol/${p.slug}`}
+                                target="_blank"
+                                rel="noopener"
+                                className="ml-2 text-xs"
+                                style={{ color: C.forest, textDecoration: "underline" }}
+                              >
+                                Llama ↗
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr style={{ background: C.panel }}>
+                            <td colSpan={7} className="px-5 py-3">
+                              <div className="flex flex-col gap-1 text-xs" style={{ color: C.ink }}>
+                                {p.fit.parts.map((part, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="flex-1">{part.label}</span>
+                                    <span className="font-bold" style={{ ...serif, color: part.pts >= part.max * 0.8 ? C.forest : part.pts >= part.max * 0.5 ? C.amber : C.gray }}>
+                                      {part.pts} / {part.max}
+                                    </span>
+                                  </div>
+                                ))}
+                                {p.description && (
+                                  <div className="mt-1" style={{ color: C.inkSoft }}>
+                                    {p.description.slice(0, 220)}{p.description.length > 220 ? "…" : ""}
+                                  </div>
+                                )}
+                                <div className="mt-1">
+                                  {p.url && (
+                                    <a href={p.url} target="_blank" rel="noopener" style={{ color: C.forest, textDecoration: "underline" }}>Website</a>
+                                  )}
+                                  {p.twitter && (
+                                    <a href={`https://x.com/${p.twitter}`} target="_blank" rel="noopener" className="ml-3" style={{ color: C.forest, textDecoration: "underline" }}>X / Twitter</a>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="px-4 py-2 text-xs" style={{ color: C.gray, borderTop: `1px solid ${C.borderSoft}` }}>
+          Fit is a shortlist heuristic (size + category + momentum + freshness), not a verdict — always run Research before outreach.
+          TVL = value locked in the protocol's contracts, a proxy for how much money trusts it.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function copyTextFallback(text) {
   try {
     const ta = document.createElement("textarea");
@@ -833,6 +1219,7 @@ export default function ProspectRadar() {
   const [sortKey, setSortKey] = useState("score");
   const [sortDir, setSortDir] = useState("desc");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [breakdownId, setBreakdownId] = useState(null); // which row's score breakdown is open
 
   // touch-log inputs (per open drawer)
   const [logChannel, setLogChannel] = useState("Email");
@@ -1656,6 +2043,7 @@ export default function ProspectRadar() {
         <div className="max-w-6xl mx-auto mt-4 flex gap-2">
           {[
             { id: "research", label: "Research & Score" },
+            { id: "explore", label: "Explore" },
             { id: "pipeline", label: `Pipeline${records.length ? ` (${records.length})` : ""}` },
           ].map((t) => (
             <button
@@ -2140,8 +2528,25 @@ export default function ProspectRadar() {
               </div>
             </div>
           </div>
+        ) : tab === "explore" ? (
+          /* ================= TAB 2: EXPLORE (DeFiLlama) ================= */
+          <ExploreTab
+            onResearch={(p) => {
+              setCompany(p.name);
+              setContext(
+                `${p.category} project; TVL ${fmtUsd(p.tvl)}${
+                  p.change_7d != null ? `; 7d ${p.change_7d >= 0 ? "+" : ""}${p.change_7d.toFixed(1)}%` : ""
+                }${p.chains.length ? `; chains: ${p.chains.slice(0, 3).join("/")}` : ""} — found via DeFiLlama`
+              );
+              setResearch(null);
+              setRawFallback(null);
+              setResearchError(null);
+              setApplied(false);
+              setTab("research");
+            }}
+          />
         ) : (
-          /* ================= TAB 2: PIPELINE ================= */
+          /* ================= TAB 3: PIPELINE ================= */
           <div className="flex flex-col gap-6">
             {/* Today's desk */}
             <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20 }}>
@@ -2636,7 +3041,17 @@ export default function ProspectRadar() {
                               }}
                             >
                               <td className="px-3 py-2.5 font-semibold" style={{ color: C.forestDark }}>{r.company}</td>
-                              <td className="px-3 py-2.5" style={{ ...serif, fontWeight: 700, color: b.color }}>{r.score}</td>
+                              <td
+                                className="px-3 py-2.5"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBreakdownId(breakdownId === r.id ? null : r.id);
+                                }}
+                                title="Click to see how this score is built"
+                                style={{ ...serif, fontWeight: 700, color: b.color, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}
+                              >
+                                {r.score}
+                              </td>
                               <td className="px-3 py-2.5">
                                 <span className="px-2 py-0.5 text-xs font-bold" style={{ background: b.bg, color: b.color, borderRadius: 999 }}>
                                   {b.band}
@@ -2673,6 +3088,14 @@ export default function ProspectRadar() {
                               </td>
                               <td className="px-3 py-2.5 text-center" style={{ color: C.inkSoft }}>{open ? "▾" : "▸"}</td>
                             </tr>
+
+                            {breakdownId === r.id && (
+                              <tr>
+                                <td colSpan={10} className="px-4 py-2" style={{ background: C.bg }}>
+                                  <ScoreBreakdown rec={r} />
+                                </td>
+                              </tr>
+                            )}
 
                             {open && (
                               <tr style={{ background: C.panel }}>

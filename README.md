@@ -18,6 +18,17 @@ Worker that also proxies the AI calls at `/api/research` (research) and
     clients, events, or expansion intent — marks the score up, with a "why" note.
   - *Multiple triggers:* the highest-scoring trigger drives the score, and a
     note lists every trigger found. "Expanding into HK/SG/Dubai" is a trigger.
+- **Score breakdown on click** — click any score in the pipeline table to see
+  exactly how it's built: each factor's chosen value, points earned vs max with
+  a mini bar, the research "why" evidence per factor, and which factors are
+  still unset (scoring 0).
+- **Prospect exploration (Explore tab)** — live discovery feed of ~8,000
+  on-chain projects from DeFiLlama's free public API (no key, fetched straight
+  from the browser). Each project gets a transparent 0–100 fit score (TVL size
+  40 + category fit 30 + 7d momentum 20 + listing freshness 10); filter by
+  search/category/chain/TVL floor, sort by fit, TVL, or growth, click a fit
+  score for its breakdown, and hit "Research →" to prefill the Research tab
+  with the project and its context.
 - **Pipeline mini-CRM** — sortable table with live text filter, status
   tracking, touch-cadence engine with Today's desk (overdue / due today /
   next 3 days), per-prospect drawer with contacts, signals, notes and touch
