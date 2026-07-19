@@ -69,6 +69,7 @@ const TRIGGERS = [
   { v: "fund_launch", label: "Fund launch", pts: 24 },
   { v: "regulatory", label: "Regulatory / licence", pts: 22 },
   { v: "incident", label: "Security incident", pts: 22 },
+  { v: "apac_expansion", label: "Expanding into HK / SG / Dubai", pts: 21 },
   { v: "staking_expansion", label: "Staking expansion", pts: 20 },
   { v: "token_unlock", label: "Token unlock", pts: 18 },
   { v: "hiring", label: "Hiring", pts: 15 },
@@ -108,6 +109,7 @@ const ANGLES = {
   fund_launch: "New fund? LPs increasingly expect licensed, segregated custody from day one.",
   regulatory: "Congrats on the licence momentum — regulated custody is usually the next box to tick.",
   incident: "After the recent incident, worth benchmarking your setup against a regulated custodian's controls.",
+  apac_expansion: "Saw the move into HK, Singapore or Dubai — regulated local custody is usually the first box to tick when setting up in-region.",
   staking_expansion: "Expanding staking? Assets can keep earning while sitting in regulated custody.",
   token_unlock: "Upcoming unlock — treasury-grade custody plus OTC can help manage it quietly.",
   hiring: "Saw the ops/compliance hiring — a good moment to formalise custody infrastructure.",
@@ -464,6 +466,7 @@ function sanitizeRecord(r, i) {
     sizeEvidence: String((r && r.sizeEvidence) || ""),
     custodyEvidence: String((r && r.custodyEvidence) || ""),
     regionEvidence: String((r && r.regionEvidence) || ""),
+    triggerEvidence: String((r && r.triggerEvidence) || ""),
     companyContact: (r && r.companyContact) || null,
     createdAt: (r && r.createdAt) || new Date().toISOString(),
     updatedAt: (r && r.updatedAt) || new Date().toISOString(),
@@ -553,6 +556,7 @@ function normalizeResearch(r) {
     size_evidence: String(r.size_evidence || ""),
     custody_evidence: String(r.custody_evidence || ""),
     region_evidence: String(r.region_evidence || ""),
+    trigger_evidence: String(r.trigger_evidence || ""),
     company_contact: {
       email: String((r.company_contact && r.company_contact.email) || ""),
       phone: String((r.company_contact && r.company_contact.phone) || ""),
@@ -577,9 +581,9 @@ Research the company "${company}".${context ? ` Known context: ${context}` : ""}
 ${searchLine}
 
 Return ONLY minified JSON — no prose, no markdown, no code fences — exactly this shape:
-{"company_summary":"...","client_type":"foundation|crypto_fund|payments|otc|family_office|bank|corporate|other","region":"hk_sg_dubai|global_apac|apac_other|mena|europe|us_only","size_band":"over_1b|250m_1b|50_250m|10_50m|under_10m|unknown","best_trigger":"tge|fund_launch|regulatory|incident|staking_expansion|token_unlock|hiring|none","current_custody":"self_custody|exchange|none_yet|competitor_renewal|competitor_locked|unknown","size_evidence":"...","custody_evidence":"...","region_evidence":"...","company_contact":{"email":"","phone":""},"trigger_events":[{"event":"...","when":"...","implication":"...","source":"...","url":"https://..."}],"contacts":[{"name":"...","title":"...","persona":"ops|finance|compliance|tech|exec|bd","email":"","phone":"","evidence":"...","url":"https://..."}],"sources":[{"title":"...","url":"https://..."}],"caution":"..."}
+{"company_summary":"...","client_type":"foundation|crypto_fund|payments|otc|family_office|bank|corporate|other","region":"hk_sg_dubai|global_apac|apac_other|mena|europe|us_only","size_band":"over_1b|250m_1b|50_250m|10_50m|under_10m|unknown","best_trigger":"tge|fund_launch|regulatory|incident|apac_expansion|staking_expansion|token_unlock|hiring|none","current_custody":"self_custody|exchange|none_yet|competitor_renewal|competitor_locked|unknown","size_evidence":"...","custody_evidence":"...","region_evidence":"...","trigger_evidence":"...","company_contact":{"email":"","phone":""},"trigger_events":[{"event":"...","when":"...","implication":"...","source":"...","url":"https://..."}],"contacts":[{"name":"...","title":"...","persona":"ops|finance|compliance|tech|exec|bd","email":"","phone":"","evidence":"...","url":"https://..."}],"sources":[{"title":"...","url":"https://..."}],"caution":"..."}
 
-Hard rules: enum fields must use one of the listed values EXACTLY. Max ${depth.events} trigger_events, max ${depth.contacts} contacts, max ${depth.sources} sources. Every string under 20 words. REGION: classify by relevance to Hex Trust's markets (Hong Kong, Singapore, Dubai/UAE, wider APAC, MENA), NOT by headquarters. Actively check for ANY link to these zones — a local office/branch/subsidiary, a licence (MAS, SFC/HKMA, VARA/DFSA), regional clients or partners, sponsorships/events, hiring, or a stated or observed plan to expand there. Any credible link — even early-stage, exploratory, or event-only — lifts the region above a headquarters-only read: use "hk_sg_dubai" when HK/Singapore/Dubai is a primary base or market; "global_apac" when HQ is elsewhere but there is real or emerging HK/SG/Dubai/APAC presence or intent; "us_only" ONLY when there is no relevance to these zones at all. State the specific link (what ties them to the region) in "region_evidence". In "implication", state in under 20 words how that event signals a need for a specific Hex Trust product (Custody, Staking, OTC/Markets, Convert-to-Pay, Token Wrapping, WaaS, Aura). Only publicly named people. CONTACT INFO: fill a contact's "email"/"phone" only if it is actually published on an official page (company site, press release, filing) — NEVER guess, construct, or pattern-infer addresses or numbers; leave "" when not found. "company_contact" is the company's general public email/phone as a fallback, same rule. Every url must be a real URL you actually found. If uncertain, use "unknown" or "none" and note it in caution.`;
+Hard rules: enum fields must use one of the listed values EXACTLY. Max ${depth.events} trigger_events, max ${depth.contacts} contacts, max ${depth.sources} sources. Every string under 20 words. REGION: classify by relevance to Hex Trust's markets (Hong Kong, Singapore, Dubai/UAE, wider APAC, MENA), NOT by headquarters. Actively check for ANY link to these zones — a local office/branch/subsidiary, a licence (MAS, SFC/HKMA, VARA/DFSA), regional clients or partners, sponsorships/events, hiring, or a stated or observed plan to expand there. Any credible link — even early-stage, exploratory, or event-only — lifts the region above a headquarters-only read: use "hk_sg_dubai" when HK/Singapore/Dubai is a primary base or market; "global_apac" when HQ is elsewhere but there is real or emerging HK/SG/Dubai/APAC presence or intent; "us_only" ONLY when there is no relevance to these zones at all. State the specific link (what ties them to the region) in "region_evidence". TRIGGER: if several trigger events apply, set best_trigger to the single HIGHEST-scoring category (this drives the score), still list each event in trigger_events, and in "trigger_evidence" note the scored trigger plus every other trigger found (e.g. "scored TGE; also staking expansion, Singapore office"). Treat a company opening an office, getting a licence, or expanding into Hong Kong/Singapore/Dubai as "apac_expansion". In "implication", state in under 20 words how that event signals a need for a specific Hex Trust product (Custody, Staking, OTC/Markets, Convert-to-Pay, Token Wrapping, WaaS, Aura). Only publicly named people. CONTACT INFO: fill a contact's "email"/"phone" only if it is actually published on an official page (company site, press release, filing) — NEVER guess, construct, or pattern-infer addresses or numbers; leave "" when not found. "company_contact" is the company's general public email/phone as a fallback, same rule. Every url must be a real URL you actually found. If uncertain, use "unknown" or "none" and note it in caution.`;
 }
 
 /* ---------------- Assistant chat helpers ---------------- */
@@ -1095,6 +1099,7 @@ export default function ProspectRadar() {
           sizeEvidence: attach ? attach.size_evidence : old.sizeEvidence,
           custodyEvidence: attach ? attach.custody_evidence : old.custodyEvidence,
           regionEvidence: attach ? attach.region_evidence : old.regionEvidence,
+          triggerEvidence: attach ? attach.trigger_evidence : old.triggerEvidence,
           updatedAt: now,
         };
         const copy = [...prev];
@@ -1121,6 +1126,7 @@ export default function ProspectRadar() {
           sizeEvidence: attach ? attach.size_evidence : "",
           custodyEvidence: attach ? attach.custody_evidence : "",
           regionEvidence: attach ? attach.region_evidence : "",
+          triggerEvidence: attach ? attach.trigger_evidence : "",
           createdAt: now,
           updatedAt: now,
         },
@@ -1994,9 +2000,10 @@ export default function ProspectRadar() {
                           </div>
                         ))}
                       </div>
-                      {(research.region_evidence || research.size_evidence || research.custody_evidence) && (
+                      {(research.region_evidence || research.trigger_evidence || research.size_evidence || research.custody_evidence) && (
                         <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
                           {research.region_evidence && <div>Region: {research.region_evidence}</div>}
+                          {research.trigger_evidence && <div>Triggers: {research.trigger_evidence}</div>}
                           {research.size_evidence && <div>Size: {research.size_evidence}</div>}
                           {research.custody_evidence && <div>Custody: {research.custody_evidence}</div>}
                         </div>
