@@ -1,0 +1,11 @@
+{
+  // Cloudflare Worker config. `npm run build` produces ./dist (the static
+  // site); `npx wrangler deploy` uploads this Worker + those assets together.
+  "name": "prospect-radar",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-07-19",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  }
+}
