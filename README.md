@@ -1,18 +1,23 @@
 # Prospect Radar (self-hosted)
 
 Personal SDR workbench for Hex Trust outreach: AI research + lead scoring +
-mini-CRM + AI assistant. React (Vite) frontend, Cloudflare Pages Function
-backend proxies at `/api/research` (research) and `/api/chat` (assistant &
-meeting briefs).
+mini-CRM + AI assistant. React (Vite) single-page app served by a Cloudflare
+Worker that also proxies the AI calls at `/api/research` (research) and
+`/api/chat` (assistant & meeting briefs), so API keys stay server-side.
 
 ## Features
 
-- **AI company research** — Gemini (default, web search), Claude (optional),
-  or DeepSeek (cheapest, no web search); structured JSON output with suggested
-  classification, signals, ranked contacts and sources. Never auto-fills the
-  form — you review, then Apply.
-- **5-factor lead scoring** — client type, region, size, trigger, custody
-  → score /100 with Band A–D and product/angle suggestions.
+- **AI company research** — Claude (default, Opus 4.8), Gemini (web search,
+  free-tier friendly), or DeepSeek (cheapest, no web search); structured JSON
+  output with suggested classification, signals, ranked contacts, sources, and
+  short "why" evidence lines. Never auto-fills the form — you review, then Apply.
+- **5-factor lead scoring** — client type, region, size, trigger, custody →
+  score /100 with Band A–D and product/angle suggestions.
+  - *Region is scored by relevance to Hex Trust's markets, not headquarters:*
+    any real HK/SG/Dubai/APAC link — an office, licence (MAS/SFC/VARA), regional
+    clients, events, or expansion intent — marks the score up, with a "why" note.
+  - *Multiple triggers:* the highest-scoring trigger drives the score, and a
+    note lists every trigger found. "Expanding into HK/SG/Dubai" is a trigger.
 - **Pipeline mini-CRM** — sortable table with live text filter, status
   tracking, touch-cadence engine with Today's desk (overdue / due today /
   next 3 days), per-prospect drawer with contacts, signals, notes and touch
@@ -36,18 +41,22 @@ meeting briefs).
 
 ## Configuration
 
-- Providers: Gemini (needs GEMINI_API_KEY), DeepSeek (DEEPSEEK_API_KEY),
-  Claude (optional, ANTHROPIC_API_KEY). Keys are Cloudflare encrypted
-  Secrets — never in code.
+- Providers: Claude (`ANTHROPIC_API_KEY`), Gemini (`GEMINI_API_KEY`), DeepSeek
+  (`DEEPSEEK_API_KEY`). Set these as the Worker's **runtime** Variables and
+  Secrets in Cloudflare (encrypted) — not the Build-section variables, which
+  don't reach the running app, and never in code.
+- Deployment: a Cloudflare Worker (`wrangler.jsonc` + `worker/index.js`) serves
+  the built site from `dist` and routes `/api/*` to the reused `functions/`
+  handlers. Placement is pinned to Singapore (`aws:ap-southeast-1`) so outbound
+  API calls egress from an Anthropic-supported region.
 - Data is saved in the browser's localStorage (per browser, per device).
-- To change model IDs later: edit `MODEL_SETS` near the top of
-  `src/ProspectRadar.jsx`.
+- To change model IDs: edit `MODEL_SETS` near the top of `src/ProspectRadar.jsx`.
 
 Full step-by-step deployment guide: see the accompanying
 `部署指南-deploy-guide.md` file.
 
 Quick start:
 1. `npm install`
-2. `npm run dev` → UI at the printed localhost address (research/assistant won't work locally without step 3)
-3. Local API test (optional): copy `.dev.vars.example` to `.dev.vars`, paste your key, then `npm run build && npx wrangler pages dev dist`
-4. Deploy: push to GitHub → Cloudflare Pages → set GEMINI_API_KEY secret → redeploy
+2. `npm run dev` → UI at the printed localhost address (the `/api` calls won't work here — they need the Worker runtime, step 3)
+3. Local API test: copy `.dev.vars.example` to `.dev.vars`, paste your keys, then `npm run build && npx wrangler dev`
+4. Deploy: push to GitHub → Cloudflare Workers Builds (`npm run build` + `npx wrangler deploy`) → add the API keys as **runtime** secrets → redeploy
