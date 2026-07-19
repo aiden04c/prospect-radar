@@ -4,6 +4,14 @@
   "name": "prospect-radar",
   "main": "worker/index.js",
   "compatibility_date": "2026-07-19",
+  // Smart Placement: run the Worker near the APIs it calls (Anthropic/Gemini,
+  // US-based) instead of at the edge nearest the visitor. This makes the
+  // outbound request to Anthropic egress from that location, which can get
+  // around a region block on the visitor's own location. Best-effort, not a
+  // guaranteed region — Cloudflare places by latency heuristics.
+  "placement": {
+    "mode": "smart"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
