@@ -10,7 +10,8 @@
   // around a region block on the visitor's own location. Best-effort, not a
   // guaranteed region — Cloudflare places by latency heuristics.
   "placement": {
-    "mode": "smart"
+    "mode": "targeted",
+    "region": "aws:ap-southeast-1"
   },
   "assets": {
     "directory": "./dist",
