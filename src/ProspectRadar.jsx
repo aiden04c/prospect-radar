@@ -47,12 +47,12 @@ const CLIENT_TYPES = [
 ];
 
 const REGIONS = [
-  { v: "hk_sg_dubai", label: "HK / Singapore / Dubai", pts: 20 },
-  { v: "global_apac", label: "Global, with APAC presence", pts: 17 },
+  { v: "hk_sg_dubai", label: "HK / Singapore / Dubai (core market)", pts: 20 },
+  { v: "global_apac", label: "Global — HK/SG/Dubai or APAC presence/intent", pts: 17 },
   { v: "apac_other", label: "Rest of APAC", pts: 16 },
   { v: "mena", label: "MENA", pts: 14 },
   { v: "europe", label: "Europe", pts: 10 },
-  { v: "us_only", label: "US-only", pts: 4 },
+  { v: "us_only", label: "US-only — no HK/SG/Dubai link", pts: 4 },
 ];
 
 const SIZES = [
@@ -463,6 +463,7 @@ function sanitizeRecord(r, i) {
     caution: String((r && r.caution) || ""),
     sizeEvidence: String((r && r.sizeEvidence) || ""),
     custodyEvidence: String((r && r.custodyEvidence) || ""),
+    regionEvidence: String((r && r.regionEvidence) || ""),
     companyContact: (r && r.companyContact) || null,
     createdAt: (r && r.createdAt) || new Date().toISOString(),
     updatedAt: (r && r.updatedAt) || new Date().toISOString(),
@@ -551,6 +552,7 @@ function normalizeResearch(r) {
     current_custody: r.current_custody,
     size_evidence: String(r.size_evidence || ""),
     custody_evidence: String(r.custody_evidence || ""),
+    region_evidence: String(r.region_evidence || ""),
     company_contact: {
       email: String((r.company_contact && r.company_contact.email) || ""),
       phone: String((r.company_contact && r.company_contact.phone) || ""),
@@ -575,9 +577,9 @@ Research the company "${company}".${context ? ` Known context: ${context}` : ""}
 ${searchLine}
 
 Return ONLY minified JSON — no prose, no markdown, no code fences — exactly this shape:
-{"company_summary":"...","client_type":"foundation|crypto_fund|payments|otc|family_office|bank|corporate|other","region":"hk_sg_dubai|global_apac|apac_other|mena|europe|us_only","size_band":"over_1b|250m_1b|50_250m|10_50m|under_10m|unknown","best_trigger":"tge|fund_launch|regulatory|incident|staking_expansion|token_unlock|hiring|none","current_custody":"self_custody|exchange|none_yet|competitor_renewal|competitor_locked|unknown","size_evidence":"...","custody_evidence":"...","company_contact":{"email":"","phone":""},"trigger_events":[{"event":"...","when":"...","implication":"...","source":"...","url":"https://..."}],"contacts":[{"name":"...","title":"...","persona":"ops|finance|compliance|tech|exec|bd","email":"","phone":"","evidence":"...","url":"https://..."}],"sources":[{"title":"...","url":"https://..."}],"caution":"..."}
+{"company_summary":"...","client_type":"foundation|crypto_fund|payments|otc|family_office|bank|corporate|other","region":"hk_sg_dubai|global_apac|apac_other|mena|europe|us_only","size_band":"over_1b|250m_1b|50_250m|10_50m|under_10m|unknown","best_trigger":"tge|fund_launch|regulatory|incident|staking_expansion|token_unlock|hiring|none","current_custody":"self_custody|exchange|none_yet|competitor_renewal|competitor_locked|unknown","size_evidence":"...","custody_evidence":"...","region_evidence":"...","company_contact":{"email":"","phone":""},"trigger_events":[{"event":"...","when":"...","implication":"...","source":"...","url":"https://..."}],"contacts":[{"name":"...","title":"...","persona":"ops|finance|compliance|tech|exec|bd","email":"","phone":"","evidence":"...","url":"https://..."}],"sources":[{"title":"...","url":"https://..."}],"caution":"..."}
 
-Hard rules: enum fields must use one of the listed values EXACTLY. Max ${depth.events} trigger_events, max ${depth.contacts} contacts, max ${depth.sources} sources. Every string under 20 words. In "implication", state in under 20 words how that event signals a need for a specific Hex Trust product (Custody, Staking, OTC/Markets, Convert-to-Pay, Token Wrapping, WaaS, Aura). Only publicly named people. CONTACT INFO: fill a contact's "email"/"phone" only if it is actually published on an official page (company site, press release, filing) — NEVER guess, construct, or pattern-infer addresses or numbers; leave "" when not found. "company_contact" is the company's general public email/phone as a fallback, same rule. Every url must be a real URL you actually found. If uncertain, use "unknown" or "none" and note it in caution.`;
+Hard rules: enum fields must use one of the listed values EXACTLY. Max ${depth.events} trigger_events, max ${depth.contacts} contacts, max ${depth.sources} sources. Every string under 20 words. REGION: classify by relevance to Hex Trust's markets (Hong Kong, Singapore, Dubai/UAE, wider APAC, MENA), NOT by headquarters. Actively check for ANY link to these zones — a local office/branch/subsidiary, a licence (MAS, SFC/HKMA, VARA/DFSA), regional clients or partners, sponsorships/events, hiring, or a stated or observed plan to expand there. Any credible link — even early-stage, exploratory, or event-only — lifts the region above a headquarters-only read: use "hk_sg_dubai" when HK/Singapore/Dubai is a primary base or market; "global_apac" when HQ is elsewhere but there is real or emerging HK/SG/Dubai/APAC presence or intent; "us_only" ONLY when there is no relevance to these zones at all. State the specific link (what ties them to the region) in "region_evidence". In "implication", state in under 20 words how that event signals a need for a specific Hex Trust product (Custody, Staking, OTC/Markets, Convert-to-Pay, Token Wrapping, WaaS, Aura). Only publicly named people. CONTACT INFO: fill a contact's "email"/"phone" only if it is actually published on an official page (company site, press release, filing) — NEVER guess, construct, or pattern-infer addresses or numbers; leave "" when not found. "company_contact" is the company's general public email/phone as a fallback, same rule. Every url must be a real URL you actually found. If uncertain, use "unknown" or "none" and note it in caution.`;
 }
 
 /* ---------------- Assistant chat helpers ---------------- */
@@ -1092,6 +1094,7 @@ export default function ProspectRadar() {
           companyContact: attach ? attach.company_contact : old.companyContact,
           sizeEvidence: attach ? attach.size_evidence : old.sizeEvidence,
           custodyEvidence: attach ? attach.custody_evidence : old.custodyEvidence,
+          regionEvidence: attach ? attach.region_evidence : old.regionEvidence,
           updatedAt: now,
         };
         const copy = [...prev];
@@ -1117,6 +1120,7 @@ export default function ProspectRadar() {
           companyContact: attach ? attach.company_contact : null,
           sizeEvidence: attach ? attach.size_evidence : "",
           custodyEvidence: attach ? attach.custody_evidence : "",
+          regionEvidence: attach ? attach.region_evidence : "",
           createdAt: now,
           updatedAt: now,
         },
@@ -1990,8 +1994,9 @@ export default function ProspectRadar() {
                           </div>
                         ))}
                       </div>
-                      {(research.size_evidence || research.custody_evidence) && (
+                      {(research.region_evidence || research.size_evidence || research.custody_evidence) && (
                         <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
+                          {research.region_evidence && <div>Region: {research.region_evidence}</div>}
                           {research.size_evidence && <div>Size: {research.size_evidence}</div>}
                           {research.custody_evidence && <div>Custody: {research.custody_evidence}</div>}
                         </div>
