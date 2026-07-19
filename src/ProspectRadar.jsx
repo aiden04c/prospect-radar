@@ -780,12 +780,31 @@ function copyTextFallback(text) {
 
 /* ============================================================ */
 
+// Parse an /api response defensively — an empty or non-JSON body almost always
+// means the Cloudflare Functions backend isn't running (e.g. plain `npm run dev`
+// instead of `npx wrangler pages dev dist`, or a static host with no functions).
+async function readApiJson(resp) {
+  const raw = await resp.text();
+  if (!raw.trim()) {
+    throw new Error(
+      `The API sent back an empty response (HTTP ${resp.status}). The research/assistant backend isn't running here — test with "npm run build && npx wrangler pages dev dist" (not "npm run dev"), or use your deployed Cloudflare site.`
+    );
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(
+      `The API sent back a non-JSON response (HTTP ${resp.status}). The backend may not be running — use "npx wrangler pages dev dist" or your deployed site.`
+    );
+  }
+}
+
 export default function ProspectRadar() {
   const [tab, setTab] = useState("research");
 
   // research state
-  const [provider, setProvider] = useState("gemini");
-  const [model, setModel] = useState(MODEL_SETS.gemini[0].id);
+  const [provider, setProvider] = useState("anthropic");
+  const [model, setModel] = useState("claude-opus-4-8");
   const [depth, setDepth] = useState("standard");
   const [company, setCompany] = useState("");
   const [context, setContext] = useState("");
@@ -830,8 +849,8 @@ export default function ProspectRadar() {
 
   // assistant chat panel
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatProvider, setChatProvider] = useState("gemini");
-  const [chatModel, setChatModel] = useState(MODEL_SETS.gemini[0].id);
+  const [chatProvider, setChatProvider] = useState("anthropic");
+  const [chatModel, setChatModel] = useState("claude-opus-4-8");
   const [chatSearch, setChatSearch] = useState(false);
   const [chatScope, setChatScope] = useState([]); // record ids whose full detail is sent
   const [chatMessages, setChatMessages] = useState([]);
@@ -997,7 +1016,7 @@ export default function ProspectRadar() {
             prompt: buildPrompt(name, context.trim(), depthCfg, provider !== "deepseek"),
           }),
         });
-        const data = await resp.json();
+        const data = await readApiJson(resp);
         if (data.error) throw new Error(data.error);
         const text = String(data.text || "");
         if (!text.trim()) throw new Error("Empty response");
@@ -1220,7 +1239,7 @@ export default function ProspectRadar() {
           search: chatProvider === "deepseek" ? false : chatSearch,
         }),
       });
-      const data = await resp.json();
+      const data = await readApiJson(resp);
       if (data.error) throw new Error(data.error);
       const raw = String(data.text || "");
       if (!raw.trim()) throw new Error("The model returned an empty reply — try again.");
@@ -1286,7 +1305,7 @@ export default function ProspectRadar() {
           search: chatProvider === "deepseek" ? false : chatSearch,
         }),
       });
-      const data = await resp.json();
+      const data = await readApiJson(resp);
       if (data.error) throw new Error(data.error);
       const text = String(data.text || "").trim();
       if (!text) throw new Error("The model returned an empty brief — try again.");
